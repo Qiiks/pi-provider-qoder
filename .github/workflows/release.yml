@@ -48,10 +48,7 @@ jobs:
       - name: Type check
         run: npm run check
 
-      - name: Build
-        run: npm run build
-
       # Publishes via Trusted Publishing (OIDC) — no NPM_TOKEN needed.
-      # npm publish runs prepublishOnly (check + build) again as a safety net.
+      # npm publish runs prepublishOnly (type check) again as a safety net.
       - name: Publish to npm
         run: npm publish --provenance --access public

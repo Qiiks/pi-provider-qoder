@@ -20,6 +20,8 @@ interface QoderUsageInfo {
 
 export interface QoderProviderUsage {
   summary?: string;
+  /** True when the account is over quota (raw `isQuotaExceeded`). */
+  exceeded?: boolean;
   subscriptionTitle?: string;
   resetAt?: string;
   manageUrl?: string;
@@ -80,6 +82,7 @@ export async function fetchQoderUsageForMode(
 
   return {
     summary: remainingText,
+    exceeded: raw.isQuotaExceeded === true,
     subscriptionTitle: region.usageTitle,
     resetAt: raw.expiresAt ? new Date(raw.expiresAt).toISOString() : undefined,
     manageUrl: region.manageUrl,

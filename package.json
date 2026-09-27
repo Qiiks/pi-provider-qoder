@@ -15,11 +15,10 @@
     "provider"
   ],
   "files": [
-    "dist",
+    "src",
     "README.md"
   ],
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --outfile=dist/index.js --external:@earendil-works/pi-ai --external:@earendil-works/pi-coding-agent --external:@earendil-works/pi-ai/compat",
     "check": "node node_modules/typescript/bin/tsc --noEmit",
     "lint": "node node_modules/@biomejs/biome/bin/biome check .",
     "lint:fix": "node node_modules/@biomejs/biome/bin/biome check --write .",
@@ -27,19 +26,17 @@
     "test": "vitest run",
     "test:live": "tsx scripts/record-live-fixtures.ts",
     "test:watch": "vitest",
-    "prepare": "npm run build",
-    "prepublishOnly": "npm run check && npm run build"
+    "prepublishOnly": "npm run check"
   },
   "pi": {
     "extensions": [
-      "./dist/index.js"
+      "./src/index.ts"
     ]
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.13",
-    "@earendil-works/pi-ai": "^0.86.1",
-    "@earendil-works/pi-coding-agent": "^0.86.1",
-    "esbuild": "^0.28.1",
+    "@earendil-works/pi-ai": "^0.87.1",
+    "@earendil-works/pi-coding-agent": "^0.87.1",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2",
     "vitest": "^5.0.1"

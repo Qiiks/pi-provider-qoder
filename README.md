@@ -3,8 +3,9 @@
 A [pi](https://shittycodingagent.ai/) extension that connects pi to [Qoder](https://qoder.com/). It emulates the official `qodercli` (and its China variant) protocol end-to-end: OAuth device login / PAT exchange, COSY request signing, the live model catalog, and the streaming chat gateway — no standalone CLI binary required.
 
 ```bash
-pi install npm:pi-provider-qoder
-# or: omp install npm:pi-provider-qoder
+pi install npm:@zenodinh/pi-provider-qoder
+# or: omp install npm:@zenodinh/pi-provider-qoder
+# or straight from the repo: pi install git:github.com/zenodinh/pi-provider-qoder
 ```
 
 ## Quick start
@@ -12,7 +13,7 @@ pi install npm:pi-provider-qoder
 From the command line:
 
 ```bash
-pi --provider qoder --model Lite
+pi --provider qoder --model Qwen3.8-Max
 pi --provider qoder-cn --model Qwen3.7-Plus
 ```
 
@@ -135,9 +136,9 @@ The usage hook hits `GET /api/v2/quota/usage` and surfaces:
 
 ```bash
 npm install
-npm run build      # bundle the extension into dist/
 npm test           # run the offline unit suite (replays recorded fixtures)
 npm run test:live  # re-record live protocol fixtures (needs QODER_PAT / QODERCN_PAT)
+pi -e ./src/index.ts  # load the extension from source in pi
 ```
 
 See [`src/__fixtures__/live/README.md`](src/__fixtures__/live/README.md) for the fixture format and how to re-record it.

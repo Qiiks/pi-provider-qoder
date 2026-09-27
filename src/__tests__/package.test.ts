@@ -7,16 +7,30 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8")) as {
   files: string[];
   pi: { extensions: string[] };
+  scripts: Record<string, string>;
 };
 
 describe("published Pi extension entry", () => {
-  it("points pi.extensions at the bundled dist file, not src", () => {
-    // `files` only ships dist/ + README.md. Pointing at src/index.ts (as 0.3.0
-    // on npm did) means Pi lists the package as installed but never loads it
-    // (issues #18 and #21). The build script emits dist/index.js.
-    expect(pkg.files).toContain("dist");
-    expect(pkg.files).not.toContain("src");
-    expect(pkg.pi.extensions).toEqual(["./dist/index.js"]);
+  it("points pi.extensions at the TypeScript source, and files ships it", () => {
+    // Pi loads TypeScript entries through jiti — no build step needed (docs:
+    // "Pi uses jiti, so local TypeScript extensions do not need a separate
+    // compilation step"). The 0.3.0 incident (#18, #21) was a files/entry
+    // mismatch, not a TS limitation: the manifest pointed at src/index.ts
+    // while `files` shipped only dist/, so the tarball carried no entry file
+    // and Pi silently listed the package without loading it (reproduced: a
+    // missing entry registers zero models and prints no error). Verified on
+    // pi 0.87.1 for git sources too: clone + `npm install --omit=dev` loads
+    // every model straight from src/index.ts.
+    expect(pkg.files).toContain("src");
+    expect(pkg.files).not.toContain("dist");
+    expect(pkg.pi.extensions).toEqual(["./src/index.ts"]);
+  });
+
+  it("has no prepare script (pi installs git sources with npm install --omit=dev)", () => {
+    // npm still runs `prepare` during that install, but devDependencies are
+    // omitted, so a prepare that shells out to a build tool (esbuild) fails
+    // the whole install (npm exit 127) and pi deletes the clone.
+    expect(pkg.scripts.prepare).toBeUndefined();
   });
 
   it("keeps every pi.extensions path inside the published files set", () => {

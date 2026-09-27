@@ -34,6 +34,7 @@ function fetchUsage(credentials: OAuthCredentials, mode: QoderMode): Promise<Qod
 
 function renderUsage(usage: QoderProviderUsage, servedFromCache: boolean, cacheAgeMs: number): string[] {
   const lines: string[] = [];
+  if (usage.exceeded) lines.push("Quota exceeded: new requests are blocked until the reset date");
   const buckets = usage.usageBuckets ?? [];
   for (const bucket of buckets) {
     const limit = bucket.limitDisplay ? ` / ${bucket.limitDisplay}` : "";
@@ -77,5 +78,6 @@ export async function handleQuotaCommand(_args: string, ctx: ExtensionCommandCon
     ctx.ui.notify("Qoder quota unavailable: no Qoder credentials are configured.", "warning");
     return;
   }
-  ctx.ui.notify(lines.join("\n"), "info");
+  const exceeded = QODER_MODES.some((mode) => quotaCache.get(mode)?.usage.exceeded === true);
+  ctx.ui.notify(lines.join("\n"), exceeded ? "warning" : "info");
 }
