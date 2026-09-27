@@ -67,4 +67,25 @@ describe("qoder-quota command (F4)", () => {
     await handleQuotaCommand("", fakeCtx(notify));
     expect(notify).toHaveBeenCalledWith(expect.stringContaining("no Qoder credentials"), "warning");
   });
+
+  it("shares one in-flight fetch across concurrent invocations", async () => {
+    let resolveFetch: ((response: Response) => void) | undefined;
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const notify = vi.fn();
+    const first = handleQuotaCommand("", fakeCtx(notify, "fake-token"));
+    const second = handleQuotaCommand("", fakeCtx(notify, "fake-token"));
+    // Let both invocations reach the shared in-flight fetch before answering.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    resolveFetch?.(new Response(JSON.stringify(quotaPayload), { status: 200 }));
+    await Promise.all([first, second]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(notify).toHaveBeenCalledTimes(2);
+    expect(String(notify.mock.calls[0]?.[0])).toContain("User Quota");
+  });
 });
