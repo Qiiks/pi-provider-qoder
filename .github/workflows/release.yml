@@ -32,13 +32,7 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
 
-      # Trusted Publishing (OIDC) requires npm >= 11.5.1.
-      - name: Upgrade npm
-        run: npm install -g npm@latest
-
-      - name: Install dependencies
-        run: npm ci
-
+      # Runs first, so merges without a version bump skip every heavy step.
       - name: Detect version change
         id: detect
         run: |
@@ -65,6 +59,16 @@ jobs:
           else
             echo "published=false" >> "$GITHUB_OUTPUT"
           fi
+
+      # Trusted Publishing (OIDC) requires npm >= 11.5.1. One inline retry:
+      # registry reads from runners occasionally ECONNRESET.
+      - name: Upgrade npm
+        if: steps.detect.outputs.changed == 'true'
+        run: npm install -g npm@latest || npm install -g npm@latest
+
+      - name: Install dependencies
+        if: steps.detect.outputs.changed == 'true'
+        run: npm ci
 
       - name: Lint
         if: steps.detect.outputs.changed == 'true'
