@@ -88,4 +88,28 @@ describe("qoder-quota command (F4)", () => {
     expect(notify).toHaveBeenCalledTimes(2);
     expect(String(notify.mock.calls[0]?.[0])).toContain("User Quota");
   });
+
+  it("flags an exceeded account and warns through the notify style", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              ...quotaPayload,
+              userQuota: { total: 100, used: 100, remaining: 0, percentage: 100, unit: "credits" },
+              totalUsagePercentage: 100,
+              isQuotaExceeded: true,
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+    const notify = vi.fn();
+    await handleQuotaCommand("", fakeCtx(notify, "fake-token"));
+    const output = String(notify.mock.calls[0]?.[0]);
+    expect(output).toContain("Quota exceeded");
+    expect(output).toContain("Manage:");
+    expect(notify.mock.calls[0]?.[1]).toBe("warning");
+  });
 });
