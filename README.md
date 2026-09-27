@@ -13,7 +13,7 @@ pi install npm:@zenodinh/pi-provider-qoder
 From the command line:
 
 ```bash
-pi --provider qoder --model Lite
+pi --provider qoder --model Qwen3.8-Max
 pi --provider qoder-cn --model Qwen3.7-Plus
 ```
 

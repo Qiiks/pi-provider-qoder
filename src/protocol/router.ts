@@ -57,7 +57,7 @@ export function streamQoderRouter(model: Model<Api>, context: TranscriptContext,
   debugLog(`provider.request model_key=${upstreamKey} protocol=${decision.protocol} source=${decision.source}`);
 
   const routing = getRoutingData();
-  filterSamplingParams(options, routing.rejectedSamplingKeys);
+  filterSamplingParams(model, options, routing.rejectedSamplingKeys);
 
   if (decision.protocol === PROTOCOL.V2) {
     return streamQoderV2(model, context, options, { mode, modelConfig, upstreamKey });

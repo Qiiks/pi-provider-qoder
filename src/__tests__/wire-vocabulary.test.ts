@@ -272,7 +272,7 @@ describe("legacy parameters vocabulary (SA rows 2, 8)", () => {
 });
 
 describe("sampling filter (SA row 7)", () => {
-  it.fails("drops rejected keys configured at the model level — T1 fix pending (filter reads options only)", async () => {
+  it("drops rejected keys configured at the model level", async () => {
     const { calls, fetch } = v2FetchCapture();
     const model = {
       ...modelNamed("Ultimate"),
