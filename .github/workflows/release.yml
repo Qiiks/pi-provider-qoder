@@ -2,28 +2,35 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*"
+    branches: [main]
+
+# Serialize releases so two quick merges cannot publish out of order.
+concurrency:
+  group: release-main
+  cancel-in-progress: false
 
 permissions:
-  contents: read
+  # Required to create the tag and the GitHub Release.
+  contents: write
   # Required for npm provenance (OIDC).
   id-token: write
 
 jobs:
-  publish:
-    name: Build & publish to npm
+  release:
+    name: npm publish + GitHub Release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # The version-diff baseline is github.event.before — needs real history.
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-          cache: npm
 
       # Trusted Publishing (OIDC) requires npm >= 11.5.1.
       - name: Upgrade npm
@@ -32,23 +39,57 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify tag matches package.json version
+      - name: Detect version change
+        id: detect
         run: |
-          PKG_VERSION="$(node -p "require('./package.json').version")"
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-            echo "::error::Tag $GITHUB_REF_NAME ($TAG_VERSION) does not match package.json version ($PKG_VERSION)"
-            exit 1
+          NEW="$(node -p "require('./package.json').version")"
+          OLD=""
+          if git cat-file -e "${{ github.event.before }}:package.json" 2>/dev/null; then
+            OLD="$(git show "${{ github.event.before }}:package.json" | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version")"
           fi
-          echo "Publishing version $PKG_VERSION"
+          if [ "$OLD" != "$NEW" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "version=$NEW" >> "$GITHUB_OUTPUT"
+            echo "Version change: ${OLD:-<none>} -> $NEW"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No version change ($NEW) — skipping release."
+          fi
+
+      - name: Is the version already on npm?
+        id: npmcheck
+        if: steps.detect.outputs.changed == 'true'
+        run: |
+          if npm view "@zenodinh/pi-provider-qoder@${{ steps.detect.outputs.version }}" version >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Lint
+        if: steps.detect.outputs.changed == 'true'
         run: npm run lint
 
       - name: Type check
+        if: steps.detect.outputs.changed == 'true'
         run: npm run check
+
+      - name: Test
+        if: steps.detect.outputs.changed == 'true'
+        run: npm test
 
       # Publishes via Trusted Publishing (OIDC) — no NPM_TOKEN needed.
       # npm publish runs prepublishOnly (type check) again as a safety net.
       - name: Publish to npm
+        if: steps.detect.outputs.changed == 'true' && steps.npmcheck.outputs.published == 'false'
         run: npm publish --provenance --access public
+
+      - name: Pack and create the GitHub Release
+        if: steps.detect.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="${{ steps.detect.outputs.version }}"
+          npm pack
+          gh release view "v$V" >/dev/null 2>&1 || gh release create "v$V" --generate-notes --title "v$V"
+          gh release upload "v$V" ./*.tgz --clobber

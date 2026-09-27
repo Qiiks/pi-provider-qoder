@@ -143,6 +143,10 @@ pi -e ./src/index.ts  # load the extension from source in pi
 
 See [`src/__fixtures__/live/README.md`](src/__fixtures__/live/README.md) for the fixture format and how to re-record it.
 
+## Releasing
+
+Bump the version (`npm version patch --no-git-tag-version`) and merge to `main`. The [Release workflow](.github/workflows/release.yml) detects the version change, re-runs lint/types/tests, publishes to npm via Trusted Publishing (OIDC, with provenance), tags `v<version>`, and creates the GitHub Release with generated notes plus the packaged tarball. Merges that do not change the version are green no-ops. The first-ever npm publish is manual: npm requires the package to exist before a trusted publisher can be configured.
+
 ## License
 
 MIT
