@@ -15,6 +15,8 @@ import { clearQoderFallbackCache, clearQoderRoutingMemCache, isMarkedLegacyOnly 
 import { clearQoderFilterMemCache } from "../protocol/sampling.js";
 
 const context = normalizeContext({ messages: [{ role: "user", content: "hi", timestamp: 0 }] });
+// v2.ts maps the host platform the way osType() does; CI runs linux, so derive it.
+const expectedOsType = process.platform === "darwin" ? "macos" : process.platform === "win32" ? "windows" : "linux";
 const cachePath = () => join(process.env.HOME as string, ".pi", "agent", "qoder-models-cache.json");
 
 function modelNamed(id: string): Model<Api> {
@@ -120,7 +122,7 @@ describe("v2 field injector", () => {
     const metadata = body.metadata as { context: Record<string, unknown> };
     expect(metadata.context.request_id).toMatch(/^[0-9a-f-]{36}$/);
     expect(metadata.context.session_id).toBe("session-1");
-    expect(metadata.context.os_type).toBe("macos");
+    expect(metadata.context.os_type).toBe(expectedOsType);
     expect(metadata.context.task_id).toBe("common");
     expect(metadata.context.client_type).toBe("5");
     expect(body.enable_thinking).toBe(true);
