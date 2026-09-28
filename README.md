@@ -1,27 +1,27 @@
 # pi-provider-qoder
 
-A [pi](https://shittycodingagent.ai/) extension that connects pi to [Qoder](https://qoder.com/). It emulates the official `qodercli` (and its China variant) protocol end-to-end: OAuth device login / PAT exchange, COSY request signing, the live model catalog, and the streaming chat gateway — no standalone CLI binary required.
+A [pi](https://shittycodingagent.ai/) extension that connects pi to [Qoder](https://qoder.com/). It emulates the official `qodercli` (and its China variant) protocol end-to-end: OAuth device login / PAT exchange, COSY request signing, the live model catalog, and the streaming chat gateway — no standalone CLI binary required. Verified against pi 0.87.1.
 
 ```bash
 pi install npm:@zenodinh/pi-provider-qoder
 # or: omp install npm:@zenodinh/pi-provider-qoder
 # or straight from the repo: pi install git:github.com/zenodinh/pi-provider-qoder
+# remove it later with: pi remove npm:@zenodinh/pi-provider-qoder
 ```
 
 ## Quick start
 
-From the command line:
+Inside pi, log in first:
+
+```text
+/login qoder
+```
+
+Then pick a model — or start directly from the command line once logged in:
 
 ```bash
 pi --provider qoder --model Qwen3.8-Max
 pi --provider qoder-cn --model Qwen3.7-Plus
-```
-
-Inside pi:
-
-```text
-/login qoder
-/model Qwen3.8-Max
 ```
 
 ## Features
@@ -33,7 +33,7 @@ Inside pi:
 - **Effort-aware thinking** — pi's thinking levels are mapped onto each model's `enable_thinking` / `reasoning_effort` support.
 - **Agentic tool use** — native tool calls, plus DSML markup embedded in the text stream, parsed into clean `toolCall` blocks.
 - **Robust streaming** — handles Qoder's double-`[DONE]` SSE envelope, hidden `<thinking>` markup, idle timeouts, and orphaned/compacted tool history.
-- **Usage reporting** — `/login` panels and session usage show Credits quota (user quota + org resource package).
+- **Usage reporting** — `/qoder-quota` shows remaining Credits (user quota + org resource package) on demand, with a 60 s cache.
 - **WAF bypass / COSY signatures** — every request is signed with the same RSA/AES machine-bound headers Qoder expects.
 
 ## Providers
@@ -81,7 +81,7 @@ After login, `/model` (or `pi --list-models`) lists what that region offers.
 
 **Fallback catalog.** When the live catalog is unavailable, an explicit static catalog is used so models work offline. IDs in the fallback are also used as seeds until a live catalog arrives.
 
-**Model ids.** The pi-visible id is the server `display_name` with all whitespace stripped (e.g. `Qwen3.8-Max`, `Qwen3.7Plus`). A hidden `upstreamKey` (`lite`, `qmodel`, `qmodel_latest`, `dmodel`, …) is kept internally and sent to the gateway on each request.
+**Model ids.** The pi-visible id is the server `display_name` with all whitespace stripped (e.g. `Qwen3.8-Max`, `Kimi-K3`). A hidden `upstreamKey` (`lite`, `qmodel`, `qmodel_latest`, `dmodel`, …) is kept internally and sent to the gateway on each request.
 
 **Context & output.**
 
@@ -108,6 +108,9 @@ The streamed response is normalized into pi thinking blocks regardless of how th
 | `QODER_STREAM_IDLE_TIMEOUT_MS` | Stream idle timeout override (default `120000` ms). |
 | `QODER_STREAM_DELTA_INTERVAL_MS` | Minimum gap between streamed text/thinking deltas (default `50` ms). Higher values cut UI CPU on long responses. |
 | `QODER_DEBUG` | When set, log diagnostics for best-effort failures (catalog refresh, PAT exchange fallthrough, userinfo lookup). Malformed SSE and token refresh failures are always surfaced as errors. |
+| `QODER_FALLBACK` | Set to `1` to retry a turn once on the legacy transport when the v2 model-server rejects a model key (stale routing); the correction is cached for the session. Off by default. |
+| `QODER_PROTOCOL` | Force `v2` or `legacy` for every request, overriding the routing table. |
+| `QODER_MODEL_SERVER_HOST` | Override the v2 model-server base URL (for example to reach a v2 host from the China region). |
 
 ## How it works (protocol notes)
 
@@ -126,11 +129,13 @@ Chat POST requests are not automatically retried, even when `maxRetries` is supp
 
 ## Usage reporting
 
-The usage hook hits `GET /api/v2/quota/usage` and surfaces:
+Run `/qoder-quota` inside pi — on demand, never on the turn path. It fetches the subscription quota and renders:
 
 - **User Quota** — used / total / remaining in Qoder Credits and the reset time.
-- **Org Resource Package** — same shape, shown when present.
-- A link to the account page to buy more Credits.
+- **Org Resource Package** — the same shape, shown when present.
+- An exceeded state plus a link to the account page when the quota is exhausted.
+
+Repeat runs within 60 seconds are served from a cache; concurrent runs share a single request. Failures print a reason ("quota unavailable") instead of numbers.
 
 ## Development
 
@@ -141,11 +146,15 @@ npm run test:live  # re-record live protocol fixtures (needs QODER_PAT / QODERCN
 pi -e ./src/index.ts  # load the extension from source in pi
 ```
 
-See [`src/__fixtures__/live/README.md`](src/__fixtures__/live/README.md) for the fixture format and how to re-record it.
+See [`src/__fixtures__/live/README.md`](https://github.com/zenodinh/pi-provider-qoder/blob/main/src/__fixtures__/live/README.md) for the fixture format and how to re-record it.
 
 ## Releasing
 
-Bump the version (`npm version patch --no-git-tag-version`) and merge to `main`. The [Release workflow](.github/workflows/release.yml) detects the version change, re-runs lint/types/tests, publishes to npm via Trusted Publishing (OIDC, with provenance), tags `v<version>`, and creates the GitHub Release with generated notes plus the packaged tarball. Merges that do not change the version are green no-ops. The first-ever npm publish is manual: npm requires the package to exist before a trusted publisher can be configured.
+Bump the version (`npm version patch --no-git-tag-version`) and merge to `main`. The [Release workflow](https://github.com/zenodinh/pi-provider-qoder/blob/main/.github/workflows/release.yml) detects the version change, re-runs lint/types/tests, publishes to npm via Trusted Publishing (OIDC, with provenance), tags `v<version>`, and creates the GitHub Release with generated notes plus the packaged tarball. Merges that do not change the version are green no-ops. The first-ever npm publish is manual: npm requires the package to exist before a trusted publisher can be configured.
+
+## Credits
+
+This project is a fork of [OnlyTomInSecond/pi-provider-qoder](https://github.com/OnlyTomInSecond/pi-provider-qoder), which itself is a fork of [simonsmh/pi-provider-qoder](https://github.com/simonsmh/pi-provider-qoder). Thanks to both for the protocol work this fork builds on.
 
 ## License
 
