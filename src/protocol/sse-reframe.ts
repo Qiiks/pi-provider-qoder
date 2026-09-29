@@ -3,26 +3,24 @@
 //   a buffered text transform; below the ≥3 dispatch threshold.
 //
 // The v2 gateway (api2-v2.qoder.sh) intermittently emits malformed SSE framing:
-// an event's JSON is split at an arbitrary byte offset and continued on the
-// next line with no `data:` prefix (recorded 2026-09-28: 35 of 1117 events on
-// one GLM-5.3 turn; 11 of 340 on the next, split offsets content-deterministic).
-// A strict SSE client JSON-parses the fragment and throws — the openai SDK
-// (core/streaming.js, JSON.parse of sse.data) killed the whole turn with
-// "Unterminated string in JSON at position 198". Valid JSON can never contain
-// a raw newline, so plain concatenation of the continued lines restores the
-// original payload losslessly; replaying the repaired capture through the
-// untouched SDK decoder yields zero parse failures.
+// an event's bytes are split by an inserted raw newline at an arbitrary offset —
+// observed inside the JSON (36/33/102/198/204…) and inside the `data:` prefix
+// itself (`data\n: {...}`, live 2026-09-29). A strict SSE client JSON-parses the
+// fragment and throws — the openai SDK (core/streaming.js, JSON.parse of
+// sse.data) killed the whole turn with "Unterminated string in JSON at position
+// 198". Valid JSON can never contain a raw newline, so plain concatenation of
+// the block's lines restores the original event bytes losslessly, wherever the
+// split landed; replaying repaired captures through the untouched SDK decoder
+// yields zero parse failures.
 import { MAX_SSE_BUFFER_LENGTH } from "./stream.js";
 
 function reframeBlock(block: string): string {
-  const lines = block.split("\n");
-  const first = lines[0];
-  if (!first.startsWith("data:")) return `${block}\n\n`;
-  let payload = first.slice(5);
+  // All single newlines inside a block are gateway-inserted splits; the event
+  // separator is the blank line the caller already split on.
+  const joined = block.split("\n").join("");
+  if (!joined.startsWith("data:")) return `${block}\n\n`;
+  let payload = joined.slice(5);
   if (payload.startsWith(" ")) payload = payload.slice(1);
-  // Continuation lines are byte-level remains of the split JSON; they carry no
-  // `data:` prefix and must be appended verbatim, never space-trimmed.
-  for (let i = 1; i < lines.length; i += 1) payload += lines[i];
   return `data: ${payload}\n\n`;
 }
 

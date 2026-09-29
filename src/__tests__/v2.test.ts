@@ -199,18 +199,21 @@ describe("v2 field injector", () => {
 });
 
 describe("fragmented SSE repair", () => {
-  // recorded-from: api2-v2.qoder.sh GLM-5.3 turn, 2026-09-28, session 01a0e86b;
-  // trimmed from raw wire captures 1790605741332-1.sse (35/1117 events malformed)
-  // and 1790605774370-2.sse (11/340). Malformed events keep their exact bytes:
-  // 36/33/102-char mid-JSON splits, a zero-length first fragment, 198-char splits.
-  // The terminal pair (finish_reason tool_calls + usage) is the recorded one —
-  // the captured turns were an agentic tool loop, so the contract they pin is
-  // pi-ai's "toolUse" mapping, not "stop".
+  // recorded-from: api2-v2.qoder.sh GLM-5.3 turns, 2026-09-28/29 (sessions
+  // 01a0e86b + the 2026-09-29 live run); trimmed from raw wire captures
+  // 1790605741332-1.sse (35/1117 events malformed), 1790605774370-2.sse
+  // (11/340), and 1790613832783-1.sse (19/700, including a split inside the
+  // `data:` prefix itself: `data\n: {...}`). Malformed events keep their exact
+  // bytes: 36/33/102-char mid-JSON splits, a zero-length first fragment,
+  // 198/204-char splits, and the prefix split. The terminal pair
+  // (finish_reason tool_calls + usage) is the recorded one — the captured turns
+  // were an agentic tool loop, so the contract they pin is pi-ai's "toolUse"
+  // mapping, not "stop".
   const fixture = readFileSync(fileURLToPath(new URL("../__fixtures__/v2-fragmented.sse", import.meta.url)), "utf8");
   // Concatenation of every delta's reasoning text in the fixture, via the
   // repaired form — the answer text a consumer must observe after the turn.
   const EXPECTED_TEXT =
-    "Let me think carefully about this start writing feature code? The project is at seed stage, and the AGENTS.md already points to three folders (background/, requirements/, system-analysis/) with existing doc links (current-state-pi-pretty-tui, prd-pi-pretty-tui, at ~/. observable acceptance reason about";
+    "Let me think carefully about this start writing feature code? The project is at seed stage, and the AGENTS.md already points to three folders (background/, requirements/, system-analysis/) with existing doc links (current-state-pi-pretty-tui, prd-pi-pretty-tui, at ~/. observable acceptance reason about \"";
 
   function sseResponse(body: string, chunkSize?: number): Response {
     const headers = { "content-type": "text/event-stream" };
