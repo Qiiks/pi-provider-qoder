@@ -5,17 +5,15 @@ import {
   type AssistantMessageEventStream,
   clampThinkingLevel,
   createAssistantMessageEventStream,
-  getCurrentSystemMessage,
-  getSystemMessageText,
   type Model,
   type SimpleStreamOptions,
   type ThinkingContent,
   type TranscriptContext,
-  withoutInitialSystemMessage,
 } from "@earendil-works/pi-ai";
 import { resolveQoderIdentity } from "../auth/oauth.js";
 import { getCachedModelConfig, MAX_OUTPUT_TOKENS } from "../catalog.js";
 import { buildAuthHeaders, getMachineId } from "../cosy.js";
+import { resolveSystemAndTools, withoutInitialSystemMessage } from "../host-compat.js";
 import { readResponseText, withAbort } from "../http.js";
 import { priceTurnCost, type RateSource, rateForUpstreamKey } from "../pricing.js";
 import { getQoderChatURL, getQoderRegionConfig } from "../region.js";
@@ -222,19 +220,16 @@ export function streamQoder(
 
       await yieldToEventLoop();
       throwIfAborted();
-      // 0.86.0+ passes a normalized TranscriptContext: the system prompt and
-      // tool declarations are folded into the transcript's leading system
-      // message instead of being top-level fields. Read them back with the
-      // transcript helpers, and strip that system message from the list before
-      // mapping history to Qoder's OpenAI-shaped messages. The resolved prompt
-      // is then sent as one leading system message.
+      // pi 0.86+ passes a normalized TranscriptContext (system prompt and tool
+      // declarations folded into the transcript's leading system message);
+      // other hosts (OMP) still pass the legacy Context with top-level
+      // systemPrompt/tools. resolveSystemAndTools reads either shape, and
+      // withoutInitialSystemMessage strips the folded prompt before mapping
+      // history to Qoder's OpenAI-shaped messages — the resolved prompt is
+      // re-sent as one leading system message below.
       const transcriptMessages = withoutInitialSystemMessage(context.messages);
       const normalizedMessages = transformMessagesForQoder(transcriptMessages);
-      // Resolve the current prompt and tool set in a single transcript pass:
-      // getCurrentSystemPrompt() would re-walk the messages (and re-resolve the
-      // tools internally) on top of the getCurrentTools() call below.
-      const currentSystem = getCurrentSystemMessage(context.messages);
-      const systemText = currentSystem ? getSystemMessageText(currentSystem) : "";
+      const { systemText, tools: currentTools } = resolveSystemAndTools(context);
 
       let lastUserText = "";
       for (let i = normalizedMessages.length - 1; i >= 0; i--) {
@@ -271,7 +266,6 @@ export function streamQoder(
         maxTokens = Math.min(maxTokens, limit);
       }
 
-      const currentTools = currentSystem?.toolsAdded ?? [];
       const toolsRaw = currentTools.length > 0 ? transformTools(currentTools) : undefined;
       // Map pi's thinking level (options.reasoning) to Qoder's request fields.
       // Confirmed from @qoder-ai/qodercli: the chat body carries `reasoning_effort`
