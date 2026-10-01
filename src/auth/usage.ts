@@ -25,6 +25,14 @@ export interface QoderUsageBucket {
   usedFraction?: number;
   /** `false` means the package exists but is not distributable right now ("Unavailable"). */
   available?: boolean;
+  /**
+   * Raw numeric amounts. The panel renders the preformatted `*Display`
+   * strings; a host usage surface (`omp usage`) draws its own bars and
+   * countdowns from numbers, so both forms are carried.
+   */
+  used?: number;
+  limit?: number;
+  remaining?: number;
 }
 
 export interface QoderProviderUsage {
@@ -52,6 +60,8 @@ export interface QoderProviderUsage {
   /** The same rollup in USD at the shared basis: cost so far / USD granted. */
   totalCostBucket?: QoderUsageBucket;
   raw?: Record<string, unknown>;
+  /** Raw `expiresAt` from the payload, for hosts that need a numeric reset. */
+  expiresAt?: number;
 }
 
 const CREDITS_FORMAT = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
@@ -187,6 +197,9 @@ function toBucket(input: BucketInput): MadeBucket {
       usedPercentDisplay: percent !== undefined ? `${Math.round(percent * 100)}%` : undefined,
       usedFraction: percent !== undefined ? Math.min(1, Math.max(0, percent)) : undefined,
       available: quota.available,
+      used: quota.used,
+      limit,
+      remaining,
     },
     limit,
     remaining,
@@ -297,8 +310,9 @@ export async function fetchQoderUsageForMode(
   return {
     summary,
     exceeded: usage.isQuotaExceeded === true,
-    subscriptionTitle: region.usageTitle,
     resetAt,
+    subscriptionTitle: region.usageTitle,
+    expiresAt: usage.expiresAt,
     manageUrl: region.manageUrl,
     usageUrl: getQoderUsagePageURL(mode),
     upgradeUrl: usage.upgradeUrl,

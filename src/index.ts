@@ -38,6 +38,7 @@ import {
 import { CREDITS_PER_USD, rateForUpstreamKey } from "./pricing.js";
 import { streamQoderRouter } from "./protocol/router.js";
 import { getQoderBaseUrl, getQoderRegionConfig, QODER_MODES, type QoderMode } from "./region.js";
+import { createQoderUsageProvider, type UsageProvider } from "./usage-provider.js";
 import { evaluateGuard, parseBudgetEnv } from "./warm-guard.js";
 
 // pi reads a `fetchUsage` hook off the oauth config at runtime, but it is not
@@ -46,6 +47,12 @@ import { evaluateGuard, parseBudgetEnv } from "./warm-guard.js";
 type QoderOAuth = NonNullable<ProviderConfig["oauth"]> & {
   fetchUsage: (credentials: OAuthCredentials) => Promise<unknown>;
 };
+
+// OMP reads a `usage:` slot off the provider registration to render its
+// `omp usage` view; pi's published ProviderConfig has no such field, so the
+// type is widened locally (the same idiom as QoderOAuth above) rather than
+// casting the whole config through `unknown`.
+type QoderProviderConfig = ProviderConfig & { usage?: UsageProvider };
 
 type QoderProviderModel = NonNullable<ProviderConfig["models"]>[number];
 
@@ -139,13 +146,17 @@ function createQoderOAuth(mode: QoderMode): QoderOAuth {
 
 function registerQoderProvider(pi: ExtensionAPI, mode: QoderMode, profile?: LifetimeProfile): void {
   const providerID = getQoderRegionConfig(mode).providerID;
-  pi.registerProvider(providerID, {
+  const config: QoderProviderConfig = {
     baseUrl: getQoderBaseUrl(mode),
     api: QODER_API,
     models: modelsForProvider(mode, providerID, profile),
     oauth: createQoderOAuth(mode),
     streamSimple: streamQoderRouter,
-  });
+    // Host usage surface: the same quota payload `/qoder-quota` renders,
+    // normalized into the report shape `omp usage` consumes.
+    usage: createQoderUsageProvider(mode, providerID),
+  };
+  pi.registerProvider(providerID, config);
 }
 
 /**
