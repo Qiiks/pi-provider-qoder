@@ -285,6 +285,43 @@ describe("streamQoder", () => {
     expect(events.find((e) => e.type === "done")).toBeUndefined();
   });
 
+  it("surfaces a busy-model queue as a transient wait, not a 403 auth fault", async () => {
+    // Live payload (Qwen3.8-Flash, 2026-10-01): the queue state sits under two
+    // nested `message` envelopes and the legacy envelope carries it with a
+    // non-200 statusCodeValue. The raw text's bare `403` classifies as an auth
+    // failure on host retry tables — wrong lane and non-retryable — so the
+    // stream must render the transient wait the payload describes instead.
+    const queueState = {
+      isQueued: true,
+      modelKey: "qfmodel",
+      queueCount: 0,
+      queueType: "p3",
+      retryAfterSeconds: 30,
+      serviceAvailable: false,
+      waitTime: 30,
+    };
+    const queued = sseEnvelope(
+      { code: "403", message: JSON.stringify({ code: "10605", message: JSON.stringify(queueState) }) },
+      403,
+      "Forbidden",
+    );
+    globalThis.fetch = mockFetch(queued);
+    const events = await consume(streamQoder(makeModel(), makeContext(), { apiKey: "fake" }));
+
+    const err = events.find((e) => e.type === "error");
+    expect(err?.type, "expected an error event").toBe("error");
+    if (err?.type !== "error") throw new Error("expected an error event");
+    const message = err.error.errorMessage ?? "";
+    expect(message).toBe(
+      "Qoder service unavailable (code 10605): model qfmodel is queued (queue p3, 0 ahead); try again in 30s.",
+    );
+    // Host-facing contract: transient lane, parseable wait hint, and no token
+    // that host retry tables read as an authentication failure.
+    expect(message).toMatch(/service ?unavailable/i);
+    expect(message).toMatch(/try again in ([\d.]+)(ms|s)/i);
+    expect(message).not.toMatch(/\b(?:401|403|unauthorized|forbidden|authentication)\b/i);
+  });
+
   it.each(["", sseEnvelope(chunk({ content: "partial" }))])("rejects premature EOF (%s)", async (sse) => {
     globalThis.fetch = mockFetch(sse);
     const events = await consume(streamQoder(makeModel(), makeContext(), { apiKey: "fake" }));

@@ -20,6 +20,7 @@ import { getQoderChatURL, getQoderRegionConfig } from "../region.js";
 import { yieldToEventLoop } from "../yield.js";
 import { type DsmlParserEvent, DsmlToolCallParser } from "./dsml.js";
 import { qoderEncodeBodyAsync } from "./encoding.js";
+import { describeQoderQueueError, parseQoderQueueState } from "./queue.js";
 import { mergeQoderHeaders } from "./request.js";
 import { getQoderRunIdentity } from "./run-state.js";
 import { stripThinkingTags, ThinkingTagParser } from "./thinking.js";
@@ -454,6 +455,10 @@ export function streamQoder(
 
       if (!response.ok) {
         const errText = await readResponseText(response, requestController.signal);
+        // Same queue state can be carried on the HTTP status path; keep the
+        // classification identical so a queue never reads as a 403 auth fault.
+        const queueState = parseQoderQueueState(errText);
+        if (queueState) throw new Error(describeQoderQueueError(queueState));
         throw new Error(`Qoder API request failed: ${response.status} ${response.statusText}. Response: ${errText}`);
       }
 
@@ -591,6 +596,12 @@ export function streamQoder(
           try {
             const envelope = JSON.parse(dataStr);
             if (envelope.statusCodeValue && envelope.statusCodeValue !== 200) {
+              // A busy model arrives as a queue-admission payload inside a
+              // non-200 envelope. Throw it as the transient wait the payload
+              // describes — the raw body's bare `403` reads as an auth failure
+              // to host classifiers and would never be retried (queue.ts).
+              const queueState = typeof envelope.body === "string" ? parseQoderQueueState(envelope.body) : undefined;
+              if (queueState) throw new Error(describeQoderQueueError(queueState));
               throw new Error(`Upstream status ${envelope.statusCodeValue}: ${envelope.body}`);
             }
 
