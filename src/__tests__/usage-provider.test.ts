@@ -37,9 +37,17 @@ describe("Qoder usage report for a host usage surface", () => {
     const report = toUsageReport(usage, "qoder");
 
     expect(report).not.toBeNull();
-    expect(report?.limits.map((limit) => limit.id)).toEqual(["user-quota", "add-on-quota", "org-resource-package"]);
+    // Account rollups lead (Qoder's migrations change which pools exist, so a
+    // pool-only view moves for reasons the user cannot see), then the pools.
+    expect(report?.limits.map((limit) => limit.id)).toEqual([
+      "total-credits",
+      "total-cost",
+      "user-quota",
+      "add-on-quota",
+      "org-resource-package",
+    ]);
 
-    const plan = report?.limits[0];
+    const plan = report?.limits[2];
     expect(plan?.amount).toMatchObject({ used: 1200, limit: 3000, remaining: 1800, unit: "credits" });
     expect(plan?.status).toBe("ok");
     expect(plan?.label).toBe("Plan Credits");
@@ -48,11 +56,11 @@ describe("Qoder usage report for a host usage surface", () => {
     expect(plan?.window?.resetsAt).toBe(1790000000000);
 
     // A bucket with nothing left is exhausted, whatever the fraction says.
-    expect(report?.limits[1]?.status).toBe("exhausted");
-    expect(report?.limits[1]?.amount.remaining).toBe(0);
+    expect(report?.limits[3]?.status).toBe("exhausted");
+    expect(report?.limits[3]?.amount.remaining).toBe(0);
 
     // The org package reports `cap` and no remaining: derived, not invented.
-    expect(report?.limits[2]?.amount).toMatchObject({ used: 10, limit: 100, remaining: 90 });
+    expect(report?.limits[4]?.amount).toMatchObject({ used: 10, limit: 100, remaining: 90 });
 
     expect(report?.notes?.join(" ")).toContain("personal");
   });
@@ -112,7 +120,7 @@ describe("Qoder usage report for a host usage surface", () => {
     expect(provider.id).toBe("qoder");
     const report = await provider.fetchUsage({ credential: CREDENTIAL });
     expect(report?.provider).toBe("qoder");
-    expect(report?.limits).toHaveLength(3);
+    expect(report?.limits).toHaveLength(5);
     // The quota endpoint is account-wide, so a failure here must not be read
     // as a broken credential by the host's health checks.
     expect(provider.validatesCredentials).toBe(false);

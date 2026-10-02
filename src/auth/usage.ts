@@ -323,3 +323,45 @@ export async function fetchQoderUsageForMode(
     raw: isRecord(payload) ? payload : undefined,
   };
 }
+
+/**
+ * One quota read per mode per TTL, shared by every surface.
+ *
+ * The cache lives here, beside the fetch, rather than in the command: a host
+ * usage view can re-render or poll on its own schedule, and the command's
+ * documented 60s cache is worthless if the host path bypasses it and spends a
+ * fresh authenticated request per render. Keyed by mode because the regions are
+ * separate accounts with separate quotas.
+ */
+export const QUOTA_CACHE_TTL_MS = 60_000;
+const quotaCache = new Map<QoderMode, { usage: QoderProviderUsage; fetchedAt: number }>();
+const quotaInflight = new Map<QoderMode, Promise<QoderProviderUsage>>();
+
+/** Drop every cached quota read; the command's `r` key and the tests use it. */
+export function clearQoderQuotaCache(): void {
+  quotaCache.clear();
+  quotaInflight.clear();
+}
+
+/**
+ * `fetchQoderUsageForMode` with the shared TTL and single-flight dedupe.
+ *
+ * `force` skips the TTL only (a user-pressed refresh), never the in-flight
+ * dedupe: two callers already waiting on the same request should share it even
+ * if the second one asked for a refresh.
+ */
+export async function fetchQoderUsageCached(
+  credentials: OAuthCredentials,
+  mode: QoderMode,
+  options: QoderRequestOptions & { force?: boolean } = {},
+): Promise<QoderProviderUsage> {
+  const cached = quotaCache.get(mode);
+  if (!options.force && cached && Date.now() - cached.fetchedAt < QUOTA_CACHE_TTL_MS) return cached.usage;
+  const pending = quotaInflight.get(mode);
+  if (pending) return pending;
+  const request = fetchQoderUsageForMode(credentials, mode, options).finally(() => quotaInflight.delete(mode));
+  quotaInflight.set(mode, request);
+  const usage = await request;
+  quotaCache.set(mode, { usage, fetchedAt: Date.now() });
+  return usage;
+}

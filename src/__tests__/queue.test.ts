@@ -5,6 +5,14 @@
 // The host-facing assertions pin the contract stream.ts relies on: the
 // rendered line must classify as transient (not auth) on host pattern tables
 // and carry the provider's wait in a form hosts parse into a real delay.
+//
+// Two of these cases are the maintainer's repros from the PR #21 review, kept
+// verbatim because both failed against the first implementation:
+//   - a 401 whose nested body reports serviceAvailable:false + a wait, with no
+//     queue discriminator, must NOT be rewritten into a retryable queue wait
+//     (an expired job token looks exactly like that and must stay a 401);
+//   - a queue payload whose own level carries no code must not re-print the
+//     outer envelope's 403, which is the token the module exists to drop.
 import { describe, expect, it } from "vitest";
 import { describeQoderQueueError, parseQoderQueueState, type QoderQueueState } from "../protocol/queue.js";
 
@@ -50,6 +58,21 @@ describe("parseQoderQueueState", () => {
     });
   });
 
+  it("recognises the business code alone, with no isQueued flag", () => {
+    expect(parseQoderQueueState(JSON.stringify({ code: "10605", retryAfterSeconds: 30 }))?.waitSeconds).toBe(30);
+  });
+
+  it("leaves a 401 with a service-down body alone (maintainer repro)", () => {
+    // Everything except the queue discriminator matches the live payload. If
+    // this rewrites, an expired job token becomes a silent retry loop and the
+    // user is never told to log in again.
+    const body = JSON.stringify({
+      code: "401",
+      message: JSON.stringify({ serviceAvailable: false, retryAfterSeconds: 60, error: "invalid token" }),
+    });
+    expect(parseQoderQueueState(body)).toBeUndefined();
+  });
+
   it("returns undefined for non-queue bodies so callers keep their error text", () => {
     expect(parseQoderQueueState("Internal failure")).toBeUndefined();
     expect(parseQoderQueueState(JSON.stringify({ code: "401", message: "bad token" }))).toBeUndefined();
@@ -77,6 +100,19 @@ describe("describeQoderQueueError", () => {
     expect(describeQoderQueueError({})).toBe("Qoder service unavailable: the model is queued; try again in a moment.");
   });
 
+  it("never re-prints a carrier status as the queue's own code (maintainer repro)", () => {
+    // The outer envelope's 403 is a carrier, not a diagnosis. Inheriting it into
+    // the message would put the exact auth token back into the text a host
+    // classifies.
+    const state = parseQoderQueueState(
+      JSON.stringify({ code: "403", message: JSON.stringify({ isQueued: true, retryAfterSeconds: 30 }) }),
+    );
+    expect(state?.code).toBeUndefined();
+    const message = describeQoderQueueError(state ?? {});
+    expect(message).not.toMatch(/\b(?:401|403|unauthorized|forbidden|authentication)\b/i);
+    expect(message).toBe("Qoder service unavailable: the model is queued; try again in 30s.");
+  });
+
   it("stays in the host transient lane and out of the auth lane", () => {
     const message = describeQoderQueueError({
       modelKey: "qfmodel",
@@ -89,8 +125,6 @@ describe("describeQoderQueueError", () => {
     expect(message).toMatch(/service ?unavailable/i);
     // The wait hint is what hosts parse into a real retry delay.
     expect(message).toMatch(/try again in ([\d.]+)(ms|s)/i);
-    // No bare status token: a `403` here would route the retry into the auth
-    // (non-retryable) lane, which is exactly the bug this module fixes.
     expect(message).not.toMatch(/\b(?:401|403|unauthorized|forbidden|authentication)\b/i);
   });
 });

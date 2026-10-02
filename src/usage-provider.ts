@@ -14,7 +14,7 @@
 // fixture of the real endpoint's payload so a host-contract drift shows up as
 // a failing test rather than an empty `omp usage` row.
 import type { OAuthCredentials } from "@earendil-works/pi-ai";
-import { fetchQoderUsageForMode, type QoderProviderUsage } from "./auth/usage.js";
+import { fetchQoderUsageCached, type QoderProviderUsage, type QoderUsageBucket } from "./auth/usage.js";
 import type { QoderMode } from "./region.js";
 
 export interface UsageAmount {
@@ -92,7 +92,7 @@ export function toUsageReport(
   const buckets = usage.usageBuckets ?? [];
   if (buckets.length === 0) return null;
   const resetsAt = usage.expiresAt ?? (usage.resetAt !== undefined ? Date.parse(usage.resetAt) : undefined);
-  const limits: UsageLimit[] = buckets.map((bucket) => {
+  const rowFor = (bucket: QoderUsageBucket): UsageLimit => {
     const usedFraction =
       bucket.usedFraction ??
       (bucket.limit !== undefined && bucket.limit > 0 && bucket.used !== undefined
@@ -115,7 +115,17 @@ export function toUsageReport(
       status: statusFor(usedFraction, bucket.remaining, usage.exceeded === true),
       ...(bucket.available === false ? { notes: ["Package exists but is not distributable right now."] } : {}),
     };
-  });
+  };
+  // Account rollups first, then the per-pool breakdown. Qoder's migrations
+  // change which pools exist on an account, so a view built from the pool rows
+  // alone reports a remaining-and-cost figure that moves for reasons the user
+  // cannot see; the rollups are the stable account-level answer and the pools
+  // are its breakdown.
+  const limits: UsageLimit[] = [
+    ...(usage.totalCreditsBucket ? [rowFor(usage.totalCreditsBucket)] : []),
+    ...(usage.totalCostBucket ? [rowFor(usage.totalCostBucket)] : []),
+    ...buckets.map(rowFor),
+  ];
   const notes: string[] = [];
   if (usage.userType) notes.push(`Account kind: ${usage.userType}`);
   if (usage.summary) notes.push(usage.summary);
@@ -135,9 +145,21 @@ export function createQoderUsageProvider(mode: QoderMode, providerID: string): U
       // OMP stores the grant as an oauth credential; `access` is the same
       // field `oauth.getApiKey` reads. Anything without it is not ours to ask.
       const cred = params.credential as Partial<OAuthCredentials> | undefined;
+      // An absent token is not a failure to report — it is nothing to ask with.
       if (typeof cred?.access !== "string" || cred.access.length === 0) return null;
-      const usage = await fetchQoderUsageForMode(cred as OAuthCredentials, mode, { signal: params.signal });
-      return toUsageReport(usage, providerID);
+      try {
+        // Shared cache: a host usage view re-renders on its own schedule, and
+        // this surface must not spend a fresh authenticated read per render.
+        const usage = await fetchQoderUsageCached(cred as OAuthCredentials, mode, { signal: params.signal });
+        return toUsageReport(usage, providerID);
+      } catch {
+        // A quota read failing says nothing about the credential
+        // (`validatesCredentials: false` already reflects that), and a host
+        // usage surface renders "no data" perfectly well. Rejecting instead
+        // would surface a network blip as a provider error on a provider that
+        // is serving turns fine.
+        return null;
+      }
     },
   };
 }
