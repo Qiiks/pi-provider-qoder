@@ -7,6 +7,7 @@ import {
   getCachedCredentials,
   loginQoderForMode,
   refreshQoderTokenForMode,
+  resolveQoderIdentity,
 } from "./auth/oauth.js";
 import { fetchQoderUsageForMode } from "./auth/usage.js";
 import {
@@ -186,11 +187,19 @@ function warnLegacyPackage(patched: boolean): void {
 
 /**
  * Rebuild the model cache for `mode` when it is missing, stale (>1h old), or
- * was fetched for a different account. Identity comes from the auth file
- * (keyed by token) with region fallbacks, so a registry/startup token and an
- * auth-file record both work. Login/refresh are the other rebuild triggers;
- * this covers startup and the case where the cache was deleted while the token
- * is still valid.
+ * was fetched for a different account. Login/refresh are the other rebuild
+ * triggers; this covers startup and the case where the cache was deleted
+ * while the token is still valid.
+ *
+ * The catalog request is signed over the caller's identity, and Qoder rejects
+ * a placeholder uid: with `userID: "qoder-user"` the signed request answers
+ * `403 {"code":"105","message":"Login expired"}`, while the same request with
+ * the real uid returns the model list (verified against the live endpoint).
+ * The auth file is only where pi persists credentials; a host that keeps them
+ * elsewhere — OMP's `agent.db`, a registry/startup token — has no auth-file
+ * record, so the uid has to come from the token itself rather than from a
+ * fallback literal. `resolveQoderIdentity` is the same lookup the chat path
+ * already uses, and it memoizes, so this costs one `/userinfo` per token.
  */
 async function refreshQoderModelsCache(mode: QoderMode, accessToken?: string): Promise<void> {
   const region = getQoderRegionConfig(mode);
@@ -198,14 +207,27 @@ async function refreshQoderModelsCache(mode: QoderMode, accessToken?: string): P
   const token = accessToken ?? getCachedCredentials("", providerID)?.access;
   if (!token) return;
   const creds = getCachedCredentials(token, providerID);
+  // Identity first, staleness second. The staleness check compares the cached
+  // account against `creds.userID`, so with no auth-file record it compared
+  // against `undefined` and could never detect an account change either.
+  // Resolving first lets one lookup feed both the check and the signature.
+  // An auth-file record already carries the identity; only resolve one when
+  // the file has nothing for this token.
+  const identity = creds?.userID
+    ? { userID: creds.userID, name: creds.name, email: creds.email }
+    : await resolveQoderIdentity(token, providerID, mode).catch(() => null);
+  // resolveQoderIdentity degrades to the 'qoder-user' placeholder when
+  // /userinfo is unreachable; signing the catalog request with it can only
+  // 403 (business 105), so skip like the unresolvable case instead.
+  if (!identity || identity.userID === "qoder-user") return;
   // Rebuild when the cache is missing, older than an hour, or was fetched for
   // a different account.
-  if (!isCacheStale(mode, creds?.userID)) return;
+  if (!isCacheStale(mode, identity.userID)) return;
   await updateQoderModelsCache(
     token,
-    creds?.userID || "qoder-user",
-    creds?.name || region.userNameFallback,
-    creds?.email || region.userEmailFallback,
+    identity.userID,
+    identity.name || region.userNameFallback,
+    identity.email || region.userEmailFallback,
     mode,
   );
 }
